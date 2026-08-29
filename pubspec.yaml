@@ -1,7 +1,7 @@
 name: ever_app
-description: Ever的家园 - Libi与Ever的聊天App
+description: 珩心 - Libi与Ever的聊天App
 publish_to: 'none'
-version: 1.0.0+5
+version: 1.0.0+6
 
 environment:
   sdk: '>=3.0.0 <4.0.0'

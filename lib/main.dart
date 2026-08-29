@@ -12,7 +12,7 @@ class EverApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Ever的家园',
+      title: '珩心',
       theme: _buildTheme(),
       home: const HomeShell(),
       debugShowCheckedModeBanner: false,
