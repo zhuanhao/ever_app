@@ -29,7 +29,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _loadingProviders = false;
 
   // 版本更新相关
-  String _currentVersion = '1.0.0+4'; // 本地版本（与 pubspec 同步手动维护）
+  String _currentVersion = '1.0.0+5'; // 本地版本（与 pubspec 同步手动维护）
   Map<String, dynamic> _latestVersion = {}; // 远端版本信息
   bool _checkingVersion = false;
   bool _versionChecked = false;
@@ -38,6 +38,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // 备份/恢复相关
   bool _backingUp = false;
   bool _restoring = false;
+  bool _backingUpLocal = false;
+  bool _restoringLocal = false;
   String? _lastBackupTime;
 
   @override
@@ -179,30 +181,106 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final urlCtrl = TextEditingController(text: existing?['base_url']?.toString() ?? '');
     final keyCtrl = TextEditingController(text: existing?['api_key']?.toString() ?? '');
     final modelCtrl = TextEditingController(text: existing?['model']?.toString() ?? '');
+    // 拉取到的模型列表（非空时 model 显示为下拉选择）
+    List<String> fetchedModels = [];
+    bool fetching = false;
 
     final saved = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(existing == null ? '新增中转站' : '编辑中转站', style: const TextStyle(fontWeight: FontWeight.w700)),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _dialogField(nameCtrl, '名称', hint: '如 jixiang'),
-              _dialogField(urlCtrl, 'Base URL', hint: 'https://中转站/v1'),
-              _dialogField(keyCtrl, 'API Key', hint: 'sk-...', obscure: true),
-              _dialogField(modelCtrl, '模型', hint: 'claude-opus-4-6'),
-            ],
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: Text(existing == null ? '新增中转站' : '编辑中转站', style: const TextStyle(fontWeight: FontWeight.w700)),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _dialogField(nameCtrl, '名称', hint: '如 jixiang'),
+                _dialogField(urlCtrl, 'Base URL', hint: 'https://中转站/v1'),
+                _dialogField(keyCtrl, 'API Key', hint: 'sk-...', obscure: true),
+                // 模型输入 + 拉取按钮
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: modelCtrl,
+                              enabled: false,
+                              decoration: InputDecoration(
+                                labelText: '模型',
+                                hintText: fetchedModels.isEmpty ? 'claude-opus-4-6' : '从下方拉取下拉选择',
+                                border: const OutlineInputBorder(),
+                                isDense: true,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          _dialogBtn(
+                            icon: fetching ? Icons.hourglass_top : Icons.cloud_download,
+                            label: '拉取',
+                            onTap: () async {
+                              if (urlCtrl.text.trim().isEmpty || keyCtrl.text.trim().isEmpty) {
+                                ScaffoldMessenger.of(ctx).showSnackBar(
+                                  const SnackBar(content: Text('请先填写 Base URL 和 API Key')),
+                                );
+                                return;
+                              }
+                              setDialogState(() => fetching = true);
+                              final api = ApiClient();
+                              final models = await api.fetchProviderModels(urlCtrl.text.trim(), keyCtrl.text.trim());
+                              setDialogState(() {
+                                fetching = false;
+                                fetchedModels = models;
+                                if (models.isNotEmpty) {
+                                  modelCtrl.text = models.first;
+                                }
+                              });
+                              if (models.isEmpty) {
+                                ScaffoldMessenger.of(ctx).showSnackBar(
+                                  const SnackBar(content: Text('拉取失败，请检查地址/Key 或该站不支持 /models')),
+                                );
+                              } else {
+                                ScaffoldMessenger.of(ctx).showSnackBar(
+                                  SnackBar(content: Text('已拉取 ${models.length} 个模型，可在下拉中选择')),
+                                );
+                              }
+                            },
+                          ),
+                        ],
+                      ),
+                      if (fetchedModels.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Wrap(
+                            spacing: 6,
+                            runSpacing: 4,
+                            children: fetchedModels
+                                .map((m) => ActionChip(
+                                      label: Text(m, style: const TextStyle(fontSize: 12)),
+                                      backgroundColor: m == modelCtrl.text ? const Color(0xFF8E7CC3).withOpacity(0.2) : null,
+                                      onPressed: () => setDialogState(() => modelCtrl.text = m),
+                                    ))
+                                .toList(),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+            FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: const Color(0xFF8E7CC3)),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('保存'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: const Color(0xFF8E7CC3)),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('保存'),
-          ),
-        ],
       ),
     );
 
@@ -311,6 +389,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  // 对话框内的小按钮（如拉取图标按钮）
+  Widget _dialogBtn({required IconData icon, required String label, required VoidCallback onTap}) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: const Color(0xFF8E7CC3).withOpacity(0.1),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: const Color(0xFF8E7CC3), size: 20),
+            const SizedBox(height: 4),
+            Text(label, style: const TextStyle(color: Color(0xFF8E7CC3), fontSize: 12)),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   void dispose() {
     _backendCtrl.dispose();
@@ -397,6 +498,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ? '正在导入...'
                 : '拉取最近一次备份并覆盖本地数据',
             onTap: _restoreNow,
+          ),
+          _SettingTile(
+            icon: Icons.save_alt,
+            title: '本地备份',
+            subtitle: _backingUpLocal
+                ? '正在导出...'
+                : '导出为本地 JSON 文件，可自行保存/传回',
+            onTap: _backupToLocal,
+          ),
+          _SettingTile(
+            icon: Icons.file_open,
+            title: '从本地导入',
+            subtitle: _restoringLocal
+                ? '正在导入...'
+                : '选择本地备��� JSON 文件并覆盖本地数据',
+            onTap: _restoreFromLocal,
           ),
 
           const SizedBox(height: 16),
@@ -545,6 +662,61 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  Future<void> _backupToLocal() async {
+    if (_backingUpLocal) return;
+    setState(() => _backingUpLocal = true);
+    final backend = _backendCtrl.text.trim().isEmpty ? 'https://ever.phywn.top' : _backendCtrl.text.trim();
+    final backup = BackupService(ApiClient(backendUrl: backend));
+    final path = await backup.backupToLocal();
+    if (!mounted) return;
+    setState(() => _backingUpLocal = false);
+    if (path != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('本地备份成功：$path')),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('本地备份已取消或写入失败')),
+      );
+    }
+  }
+
+  Future<void> _restoreFromLocal() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('确认从本地导入?', style: TextStyle(fontWeight: FontWeight.w700)),
+        content: const Text('将读取所选本地 JSON 备份文件并覆盖当前本地配置与数据。\n此操作不可撤销，是否继续?', style: TextStyle(fontSize: 14, height: 1.6)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: const Color(0xFF8E7CC3)),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('导入'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    if (_restoringLocal) return;
+    setState(() => _restoringLocal = true);
+    final backend = _backendCtrl.text.trim().isEmpty ? 'https://ever.phywn.top' : _backendCtrl.text.trim();
+    final backup = BackupService(ApiClient(backendUrl: backend));
+    final ok = await backup.restoreFromLocal();
+    if (!mounted) return;
+    setState(() => _restoringLocal = false);
+    if (ok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('本地导入成功，重新加载设置...')),
+      );
+      _load();
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('本地导入失败，文件无效或已取消')),
+      );
+    }
+  }
+
   String _formatBackupTime(String? iso) {
     if (iso == null || iso.isEmpty) return '尚未备份';
     final dt = DateTime.tryParse(iso);
@@ -554,7 +726,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   int _parseLocalBuild(String version) {
-    // version 形如 '1.0.0+1'，取 + 后面的 build 号
+    // version 形如 '1.0.0+1'，�� + 后面的 build 号
     final idx = version.indexOf('+');
     if (idx >= 0) {
       return int.tryParse(version.substring(idx + 1)) ?? 1;

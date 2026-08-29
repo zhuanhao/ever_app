@@ -158,4 +158,33 @@ class ApiClient {
       return null;
     }
   }
+
+  /// 拉取中转站可用模型列表（直接请求中转站的 /models 接口，不经过后端）
+  /// baseUrl 形如 https://中转站/v1，会请求 $baseUrl/models
+  /// 成功返回模型 id 列表（取自 data[].id），失败返回空列表
+  Future<List<String>> fetchProviderModels(String baseUrl, String apiKey) async {
+    try {
+      String modelsUrl = baseUrl;
+      if (!modelsUrl.endsWith('/models')) {
+        modelsUrl = modelsUrl.endsWith('/')
+            ? '$modelsUrl' + 'models'
+            : '$modelsUrl/models';
+      }
+      final resp = await http.get(
+        Uri.parse(modelsUrl),
+        headers: {'Authorization': 'Bearer $apiKey'},
+      ).timeout(const Duration(seconds: 15));
+      if (resp.statusCode == 200) {
+        final data = jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
+        final list = (data['data'] as List? ?? []);
+        return list
+            .map((e) => (e as Map<String, dynamic>)['id']?.toString() ?? '')
+            .where((s) => s.isNotEmpty)
+            .toList();
+      }
+      return [];
+    } catch (e) {
+      return [];
+    }
+  }
 }

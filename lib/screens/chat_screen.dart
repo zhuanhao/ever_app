@@ -16,6 +16,7 @@ class ChatScreen extends StatefulWidget {
 
 class _ChatScreenState extends State<ChatScreen> {
   final _controller = TextEditingController();
+  final _scrollController = ScrollController();
   final List<ChatMessage> _messages = [];
   bool _sending = false;
   bool _loading = false;
@@ -42,7 +43,9 @@ class _ChatScreenState extends State<ChatScreen> {
       setState(() {
         _messages.addAll(events);
       });
+      _scrollToBottom();
     };
+    // 重置 seenIds 为当前会话所有消息 id（含历史），避免轮询把历史误注入为 event
     _stream.startPolling(knownIds: _messages.map((m) => m.id).toSet());
     // 检查后端状态
     final status = await _api.fetchStatus();
@@ -52,6 +55,7 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   void dispose() {
     _stream.dispose();
+    _scrollController.dispose();
     _controller.dispose();
     super.dispose();
   }
@@ -65,6 +69,10 @@ class _ChatScreenState extends State<ChatScreen> {
         _messages.addAll(result.messages);
         _loading = false;
       });
+      // 加载完历史后，重置轮询 seenIds 为当前所有消息 id，
+      // 避免切后端后把历史 assistant 消息误注入成 event（气泡变成居中卡片）
+      _stream.markIds(_messages.map((m) => m.id).toSet());
+      _scrollToBottom();
     }
   }
 
@@ -108,6 +116,7 @@ class _ChatScreenState extends State<ChatScreen> {
           _sending = false;
           _connected = true;
         });
+        _scrollToBottom();
       }
     } catch (e) {
       if (mounted) {
@@ -128,7 +137,7 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  // 消息操作菜单：复制 / 删除（后端同步） / 重新生成（助手消息）
+  // 消息操作菜单：复制 / 删除（后端同步） / 重���生成（助手消息）
   void _showMessageMenu(ChatMessage msg) {
     final isAssistant = msg.isAssistant;
     showModalBottomSheet(
@@ -238,6 +247,7 @@ class _ChatScreenState extends State<ChatScreen> {
           _messages.add(reply);
           _connected = true;
         });
+        _scrollToBottom();
       }
     } catch (e) {
       if (mounted) {
@@ -252,6 +262,16 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _toast(String text) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text), duration: const Duration(seconds: 1)));
+  }
+
+  // 自动滚动到最新消息（初始进入/收到新消息后调用）
+  void _scrollToBottom() {
+    if (!_scrollController.hasClients) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+      }
+    });
   }
 
   static String _now() {
@@ -298,6 +318,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 : _messages.isEmpty
                     ? _buildEmpty()
                     : ListView.builder(
+                        controller: _scrollController,
                         padding: const EdgeInsets.all(16),
                         itemCount: _messages.length,
                         itemBuilder: (ctx, i) => _buildBubble(_messages[i]),
@@ -334,7 +355,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Widget _buildBubble(ChatMessage msg) {
     final isUser = msg.isUser;
-    final isEvent = msg.msgType == 'event' || msg.fromBackend;
+    final isEvent = msg.msgType == 'event';
     final isSystem = msg.msgType == 'system';
 
     // 系统提示/后端活动回流：居中卡片样式
