@@ -102,6 +102,37 @@ class ApiClient {
     }
   }
 
+  /// 拉取中转站配置（/api/config）。返回 providers 列表 + active_provider
+  Future<Map<String, dynamic>> fetchConfig() async {
+    try {
+      final resp = await http.get(_uri('/api/config')).timeout(const Duration(seconds: 8));
+      if (resp.statusCode == 200) {
+        return jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
+      }
+      return {};
+    } catch (e) {
+      return {};
+    }
+  }
+
+  /// 保存中转站配置（POST /api/config）。action: set_active / upsert / remove
+  /// 返回后端响应 map；失败返回空 map
+  Future<Map<String, dynamic>> saveConfig(Map<String, dynamic> body) async {
+    try {
+      final resp = await http
+          .post(_uri('/api/config'),
+              headers: {'Content-Type': 'application/json'},
+              body: jsonEncode(body))
+          .timeout(const Duration(seconds: 10));
+      if (resp.statusCode == 200 || resp.statusCode == 404) {
+        return jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
+      }
+      return {};
+    } catch (e) {
+      return {};
+    }
+  }
+
   /// 拉取最新版本信息（/api/version）。失败返回空 map
   Future<Map<String, dynamic>> fetchVersion() async {
     try {

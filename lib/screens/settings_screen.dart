@@ -16,21 +16,20 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   final _config = ConfigService();
   final _backendCtrl = TextEditingController();
-  final _llmCtrl = TextEditingController();
-  final _apiKeyCtrl = TextEditingController();
-  final _modelCtrl = TextEditingController();
-  bool _showKey = false;
 
   bool _thinkingEnabled = false;
   bool _thinkingShow = false;
   bool _pushEnabled = false;
 
-  List<String> _models = [];
-  bool _loadingModels = false;
   bool _saving = false;
 
+  // 中转站管理状态
+  List<Map<String, dynamic>> _providers = [];
+  String? _activeProvider;
+  bool _loadingProviders = false;
+
   // 版本更新相关
-  String _currentVersion = '1.0.0+3'; // 本地版本（与 pubspec 同步手动维护）
+  String _currentVersion = '1.0.0+4'; // 本地版本（与 pubspec 同步手动维护）
   Map<String, dynamic> _latestVersion = {}; // 远端版本信息
   bool _checkingVersion = false;
   bool _versionChecked = false;
@@ -52,13 +51,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (!mounted) return;
     setState(() {
       _backendCtrl.text = cfg['backendUrl'] as String;
-      _llmCtrl.text = cfg['llmUrl'] as String;
-      _apiKeyCtrl.text = cfg['apiKey'] as String;
-      _modelCtrl.text = cfg['model'] as String;
       _thinkingEnabled = cfg['thinkingEnabled'] as bool;
       _thinkingShow = cfg['thinkingShow'] as bool;
       _pushEnabled = cfg['pushEnabled'] as bool;
     });
+    // 从后端拉取中转站列表
+    await _loadProviders();
     // 加载最近备份时间
     final backend = cfg['backendUrl'] as String? ?? 'https://ever.phywn.top';
     final backup = BackupService(ApiClient(backendUrl: backend));
@@ -67,15 +65,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() => _lastBackupTime = t);
   }
 
+  // 从后端 /api/config 拉取中转站列表和当前激活站
+  Future<void> _loadProviders() async {
+    final backend = _backendCtrl.text.trim().isEmpty
+        ? 'https://ever.phywn.top'
+        : _backendCtrl.text.trim();
+    final api = ApiClient(backendUrl: backend);
+    final cfg = await api.fetchConfig();
+    if (!mounted) return;
+    setState(() {
+      _providers = (cfg['providers'] as List? ?? [])
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList();
+      _activeProvider = cfg['active_provider'] as String?;
+    });
+  }
+
   Future<void> _save() async {
     setState(() => _saving = true);
+    // 后端地址、偏好开关保存到本地
     await _config.set('backendUrl', _backendCtrl.text.trim());
-    await _config.set('llmUrl', _llmCtrl.text.trim());
-    await _config.set('apiKey', _apiKeyCtrl.text.trim());
-    await _config.set('model', _modelCtrl.text.trim());
     await _config.set('thinkingEnabled', _thinkingEnabled);
     await _config.set('thinkingShow', _thinkingShow);
     await _config.set('pushEnabled', _pushEnabled);
+    // 中转站管理已即时同步后端，无需在此处理
     if (mounted) {
       setState(() => _saving = false);
       ScaffoldMessenger.of(context).showSnackBar(
@@ -84,52 +97,255 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  Future<void> _fetchModels() async {
-    setState(() => _loadingModels = true);
-    final models = await _config.fetchModels();
-    if (!mounted) return;
-    setState(() {
-      _models = models;
-      _loadingModels = false;
-    });
-    if (models.isEmpty) {
+  // ─── 中转站管理 ───────────────────────────
+
+  // 渲染中转站列表卡片
+  Widget _providerList() {
+    if (_loadingProviders) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 16),
+        child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+      );
+    }
+    if (_providers.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Text('暂无中转站，点击下方按钮添加', style: TextStyle(fontSize: 13, color: Colors.grey[600])),
+      );
+    }
+    return Column(
+      children: _providers.map((p) {
+        final name = p['name']?.toString() ?? '';
+        final base = p['base_url']?.toString() ?? '';
+        final model = p['model']?.toString() ?? '';
+        final isActive = name == _activeProvider;
+        return Card(
+          color: isActive ? const Color(0xFFF0EBFF) : Colors.white,
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+            side: BorderSide(color: isActive ? const Color(0xFF8E7CC3) : Colors.transparent, width: 1.5),
+          ),
+          margin: const EdgeInsets.only(bottom: 8),
+          child: ListTile(
+            leading: Icon(isActive ? Icons.check_circle : Icons.dns, color: isActive ? const Color(0xFF8E7CC3) : Colors.grey),
+            title: Row(
+              children: [
+                Expanded(child: Text(name, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600))),
+                if (isActive)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(color: const Color(0xFF8E7CC3), borderRadius: BorderRadius.circular(10)),
+                    child: const Text('当前', style: TextStyle(fontSize: 11, color: Colors.white, fontWeight: FontWeight.w600)),
+                  ),
+              ],
+            ),
+            subtitle: Text('$base\n$model', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+            trailing: PopupMenuButton<String>(
+              icon: const Icon(Icons.more_vert, color: Colors.grey),
+              onSelected: (v) {
+                if (v == 'active') _setActiveProvider(name);
+                if (v == 'edit') _editProvider(p);
+                if (v == 'remove') _removeProvider(name);
+              },
+              itemBuilder: (ctx) => [
+                if (!isActive) const PopupMenuItem(value: 'active', child: Text('设为当前')),
+                const PopupMenuItem(value: 'edit', child: Text('编辑')),
+                const PopupMenuItem(value: 'remove', child: Text('删除')),
+              ],
+            ),
+            onTap: () {
+              if (!isActive) _setActiveProvider(name);
+            },
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  // 新增中转站
+  Future<void> _addProvider() async {
+    await _showProviderDialog(null);
+  }
+
+  // 编辑中转站
+  Future<void> _editProvider(Map<String, dynamic> provider) async {
+    await _showProviderDialog(provider);
+  }
+
+  // 弹出新增/编辑中转站表单
+  Future<void> _showProviderDialog(Map<String, dynamic>? existing) async {
+    final nameCtrl = TextEditingController(text: existing?['name']?.toString() ?? '');
+    final urlCtrl = TextEditingController(text: existing?['base_url']?.toString() ?? '');
+    final keyCtrl = TextEditingController(text: existing?['api_key']?.toString() ?? '');
+    final modelCtrl = TextEditingController(text: existing?['model']?.toString() ?? '');
+
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(existing == null ? '新增中转站' : '编辑中转站', style: const TextStyle(fontWeight: FontWeight.w700)),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _dialogField(nameCtrl, '名称', hint: '如 jixiang'),
+              _dialogField(urlCtrl, 'Base URL', hint: 'https://中转站/v1'),
+              _dialogField(keyCtrl, 'API Key', hint: 'sk-...', obscure: true),
+              _dialogField(modelCtrl, '模型', hint: 'claude-opus-4-6'),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: const Color(0xFF8E7CC3)),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('保存'),
+          ),
+        ],
+      ),
+    );
+
+    if (saved != true) {
+      nameCtrl.dispose(); urlCtrl.dispose(); keyCtrl.dispose(); modelCtrl.dispose();
+      return;
+    }
+
+    final name = nameCtrl.text.trim();
+    final url = urlCtrl.text.trim();
+    final key = keyCtrl.text.trim();
+    final model = modelCtrl.text.trim();
+    nameCtrl.dispose(); urlCtrl.dispose(); keyCtrl.dispose(); modelCtrl.dispose();
+
+    if (name.isEmpty || url.isEmpty || key.isEmpty || model.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('拉取模型失败，请检查 LLM 地址和 Key')),
+        const SnackBar(content: Text('名称、地址、Key、模型均不能为空')),
+      );
+      return;
+    }
+
+    final backend = _backendCtrl.text.trim().isEmpty ? 'https://ever.phywn.top' : _backendCtrl.text.trim();
+    final api = ApiClient(backendUrl: backend);
+    final provider = {'name': name, 'base_url': url, 'api_key': key, 'model': model};
+    final resp = await api.saveConfig({'action': existing == null ? 'upsert' : 'upsert', 'provider': provider});
+    if (!mounted) return;
+    if (resp.containsKey('ok') && resp['ok'] == true) {
+      await _loadProviders();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(existing == null ? '已新增中转站 $name' : '已更新中转站 $name')),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(resp['error']?.toString() ?? '保存失败，请检查后端地址')),
       );
     }
   }
 
-  void _pickModel(String model) {
-    setState(() => _modelCtrl.text = model);
+  // 设为当前中转站
+  Future<void> _setActiveProvider(String name) async {
+    final backend = _backendCtrl.text.trim().isEmpty ? 'https://ever.phywn.top' : _backendCtrl.text.trim();
+    final api = ApiClient(backendUrl: backend);
+    final resp = await api.saveConfig({'action': 'set_active', 'name': name});
+    if (!mounted) return;
+    if (resp.containsKey('ok') && resp['ok'] == true) {
+      await _loadProviders();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('已切换到 $name')),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(resp['error']?.toString() ?? '切换失败')),
+      );
+    }
+  }
+
+  // 删除中转站
+  Future<void> _removeProvider(String name) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('删除中转站', style: TextStyle(fontWeight: FontWeight.w700)),
+        content: Text('确定删除 $name 吗？\n若为当前中转站，将自动切换到剩余第一个。', style: const TextStyle(fontSize: 14, height: 1.6)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: const Color(0xFFD05A5A)),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    final backend = _backendCtrl.text.trim().isEmpty ? 'https://ever.phywn.top' : _backendCtrl.text.trim();
+    final api = ApiClient(backendUrl: backend);
+    final resp = await api.saveConfig({'action': 'remove', 'name': name});
+    if (!mounted) return;
+    if (resp.containsKey('ok') && resp['ok'] == true) {
+      await _loadProviders();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('已删除')),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(resp['error']?.toString() ?? '删除失败')),
+      );
+    }
+  }
+
+  // 编辑表单中的输入框
+  Widget _dialogField(TextEditingController ctrl, String label, {String? hint, bool obscure = false}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: TextField(
+        controller: ctrl,
+        obscureText: obscure,
+        decoration: InputDecoration(
+          labelText: label,
+          hintText: hint,
+          border: const OutlineInputBorder(),
+          isDense: true,
+        ),
+      ),
+    );
   }
 
   @override
   void dispose() {
     _backendCtrl.dispose();
-    _llmCtrl.dispose();
-    _apiKeyCtrl.dispose();
-    _modelCtrl.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('设置')),
+      appBar: AppBar(title: const Text('设���')),
       backgroundColor: const Color(0xFFFAF8F5),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          _SectionTitle('API 配置'),
+          _SectionTitle('连接设置'),
           _textField(_backendCtrl, icon: Icons.dns, label: '后端 API 地址', hint: 'http://你的VPS:8899'),
-          _textField(_llmCtrl, icon: Icons.language, label: '上游 LLM 地址', hint: 'https://中转站/v1'),
-          _textField(_apiKeyCtrl, icon: Icons.key, label: 'API Key', hint: 'sk-...', obscure: !_showKey, suffix: IconButton(
-            icon: Icon(_showKey ? Icons.visibility_off : Icons.visibility, size: 18, color: Colors.grey),
-            onPressed: () => setState(() => _showKey = !_showKey),
-          )),
-          _modelField(),
           const SizedBox(height: 8),
           _SaveBar(onSave: _save, saving: _saving),
+
+          const SizedBox(height: 16),
+          _SectionTitle('中转站管理'),
+          _providerList(),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: _addProvider,
+              icon: const Icon(Icons.add, size: 18),
+              label: const Text('新增中转站'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: const Color(0xFF8E7CC3),
+                side: const BorderSide(color: Color(0xFF8E7CC3)),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+            ),
+          ),
 
           const SizedBox(height: 16),
           _SectionTitle('MCP 配置'),
@@ -216,59 +432,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _modelField() {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: TextField(
-        controller: _modelCtrl,
-        readOnly: true,
-        onTap: _models.isEmpty ? _fetchModels : _showModelPicker,
-        decoration: InputDecoration(
-          labelText: '模型选择',
-          hintText: '点击拉取并选择可用模型',
-          prefixIcon: const Icon(Icons.model_training, color: Color(0xFF8E7CC3), size: 20),
-          suffixIcon: _loadingModels
-              ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-              : const Icon(Icons.arrow_drop_down, color: Color(0xFF8E7CC3), size: 22),
-        ),
-      ),
-    );
-  }
 
-  void _showModelPicker() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (ctx) {
-        final list = _models;
-        if (list.isEmpty) {
-          return const Padding(
-            padding: EdgeInsets.all(24),
-            child: Center(child: Text('暂无模型，请检查 LLM 地址和 Key')),
-          );
-        }
-        return SizedBox(
-          height: 400,
-          child: ListView.builder(
-            itemCount: list.length,
-            itemBuilder: (ctx, i) {
-              final model = list[i];
-              final selected = model == _modelCtrl.text;
-              return ListTile(
-                title: Text(model, style: TextStyle(fontSize: 14, color: selected ? const Color(0xFF8E7CC3) : Colors.black87)),
-                trailing: selected ? const Icon(Icons.check, color: Color(0xFF8E7CC3), size: 18) : null,
-                onTap: () {
-                  _pickModel(model);
-                  Navigator.pop(ctx);
-                },
-              );
-            },
-          ),
-        );
-      },
-    );
-  }
 
   void _showMcpHint() {
     showModalBottomSheet(
@@ -434,7 +598,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _promptDownload(String url) {
-    // 用系统分享/复制链接方式引导下载到浏览器安装
+    // 用系统分享/复制链接��式引导下载到浏览器安装
     Clipboard.setData(ClipboardData(text: url));
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('下载链接已���制：$url\n请粘贴到浏览器打开下载安装'), duration: const Duration(seconds: 5)),
