@@ -88,6 +88,8 @@ class _ChatScreenState extends State<ChatScreen> {
     try {
       final reply = await _chat.sendText(text);
       if (mounted) {
+        // 将主动聊天得到的回复 id 标记为已见，避免轮询重复注入导致消息重复显示
+        _stream.markSeen(reply.id);
         setState(() {
           userMsg.status = 1; // 标记发送成功
           _messages.add(reply);

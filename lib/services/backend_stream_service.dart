@@ -65,6 +65,11 @@ class BackendStreamService {
     _seenIds = Set.from(ids);
   }
 
+  /// 追加标记单个已见 id（主动聊天的回复也应加入，避免轮询重复注入）
+  void markSeen(String id) {
+    _seenIds.add(id);
+  }
+
   void _stop() {
     _timer?.cancel();
     _timer = null;
