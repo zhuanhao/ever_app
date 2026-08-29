@@ -29,7 +29,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _saving = false;
 
   // 版本更新相关
-  String _currentVersion = '1.0.0'; // 本地版本（与 pubspec 同步手动维护）
+  String _currentVersion = '1.0.0+2'; // 本地版本（与 pubspec 同步手动维护）
   Map<String, dynamic> _latestVersion = {}; // 远端版本信息
   bool _checkingVersion = false;
   bool _versionChecked = false;
