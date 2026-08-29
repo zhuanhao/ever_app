@@ -56,7 +56,7 @@ class SideDrawer extends StatelessWidget {
                   _item(context, Icons.person, '状态栏', () {
                     Navigator.push(context, MaterialPageRoute(builder: (_) => const StatusScreen()));
                   }),
-                  _item(context, Icons.book, '我的书房', () {
+                  _item(context, Icons.book, 'Ever 的书房', () {
                     Navigator.push(context, MaterialPageRoute(builder: (_) => const StudyScreen()));
                   }),
                   _item(context, Icons.calendar_month, '时间线', () {

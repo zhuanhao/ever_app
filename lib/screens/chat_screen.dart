@@ -180,7 +180,7 @@ class _ChatScreenState extends State<ChatScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('编辑消息'),
-        content: TextField(controller: ctrl, maxLines: 5, autofocus: true),
+        content: TextField(controller: ctrl, maxLines: 5),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
           FilledButton(

@@ -86,7 +86,7 @@ class _StudyScreenState extends State<StudyScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('我的书房')),
+      appBar: AppBar(title: const Text('Ever 的书房')),
       floatingActionButton: FloatingActionButton(
         backgroundColor: const Color(0xFF8E7CC3),
         shape: const CircleBorder(),
