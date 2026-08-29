@@ -1,6 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- 网络访问权限：聊天/版本更新等需要联网 -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- 通知权限：Android 13+ (API 33) 运行时需要请求通知权限 -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <application
         android:label="珩心"
         android:name="${applicationName}"

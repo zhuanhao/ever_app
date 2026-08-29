@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'screens/chat_screen.dart';
+import 'services/api_client.dart';
+import 'services/sse_service.dart';
 import 'widgets/side_drawer.dart';
 
 void main() {
@@ -21,15 +23,14 @@ class EverApp extends StatelessWidget {
 }
 
 ThemeData _buildTheme() {
-  // 韩系ins风：浅色、干净圆润、留白多
   final colorScheme = ColorScheme.fromSeed(
-    seedColor: const Color(0xFF8E7CC3), // 温柔的薰衣草紫，韩系感
+    seedColor: const Color(0xFF8E7CC3),
     brightness: Brightness.light,
   );
   return ThemeData(
     useMaterial3: true,
     colorScheme: colorScheme,
-    scaffoldBackgroundColor: const Color(0xFFFAF8F5), // 奶油白底
+    scaffoldBackgroundColor: const Color(0xFFFAF8F5),
     appBarTheme: const AppBarTheme(
       backgroundColor: Color(0xFFFAF8F5),
       elevation: 0,
@@ -52,7 +53,6 @@ ThemeData _buildTheme() {
   );
 }
 
-/// 主壳：纯聊天界面 + 左滑侧边栏（8大模块 + 设置）
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
 
@@ -61,6 +61,21 @@ class HomeShell extends StatefulWidget {
 }
 
 class _HomeShellState extends State<HomeShell> {
+  final ApiClient _api = ApiClient();
+  late final SseService _sse = SseService(_api);
+
+  @override
+  void initState() {
+    super.initState();
+    _sse.start();
+  }
+
+  @override
+  void dispose() {
+    _sse.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
