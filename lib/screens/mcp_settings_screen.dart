@@ -4,7 +4,8 @@ import '../services/config_service.dart';
 
 /// MCP 配置页 - 精细版
 /// 展示后端所有 MCP server(状态 + 原始工具清单 + 独立开关)
-/// 工具描述由 MCP server 自带 list_tools description 透传,前端直接展示
+/// 支持自主添加 MCP server(name/base_url/token)
+/// ob(记忆库)取消硬锁,改为可切换(带确认提示)
 class McpSettingsScreen extends StatefulWidget {
   const McpSettingsScreen({super.key});
 
@@ -18,7 +19,6 @@ class _McpSettingsScreenState extends State<McpSettingsScreen> {
   List<Map<String, dynamic>> _servers = [];
   bool _loading = true;
   String? _error;
-  bool _changed = false; // 是否发生过开关改动(供返回时刷新)
 
   @override
   void initState() {
@@ -47,29 +47,129 @@ class _McpSettingsScreenState extends State<McpSettingsScreen> {
     });
   }
 
+  // 局部更新某个 server 的 enabled（避免全量刷新卡顿）
+  void _patchServerEnabled(String name, bool enabled) {
+    final idx = _servers.indexWhere((s) => s['name'] == name);
+    if (idx < 0) return;
+    _servers[idx]['enabled'] = enabled;
+    setState(() {});
+  }
+
+  // 局部更新某个 server 的某个工具开关
+  void _patchToolEnabled(String name, String tool, bool enabled) {
+    final idx = _servers.indexWhere((s) => s['name'] == name);
+    if (idx < 0) return;
+    final ts = _servers[idx]['tool_states'] as Map<String, dynamic>?;
+    if (ts != null) {
+      ts[tool] = enabled;
+    }
+    setState(() {});
+  }
+
   Future<void> _toggleServer(Map<String, dynamic> server, bool enabled) async {
     final name = server['name'] as String? ?? '';
+    // ob(记忆库)关闭前弹确认,防止误关核心记忆库
+    if (name == 'ob' && !enabled) {
+      final ok = await _confirm('关闭记忆库？', '记忆库是 Ever 的大脑，关闭后 Ever 将无法读写长期记忆。确定要关闭吗？');
+      if (ok != true) {
+        setState(() {}); // 恢复开关
+        return;
+      }
+    }
+    // 乐观更新 UI
+    _patchServerEnabled(name, enabled);
     final res = await _api.toggleMcp({'action': 'server', 'name': name, 'enabled': enabled});
     if (!mounted) return;
     if (res['ok'] == true) {
-      setState(() => _changed = true);
       _snack('已${enabled ? "开启" : "关闭"} $name');
+      // 工具列表可能因 enabled 变化,局部刷新该 server
       _load();
     } else {
+      // 失败回滚
+      _patchServerEnabled(name, server['enabled'] == true);
       _snack(res['error']?.toString() ?? '操作失败');
     }
   }
 
   Future<void> _toggleTool(Map<String, dynamic> server, String tool, bool enabled) async {
     final name = server['name'] as String? ?? '';
+    _patchToolEnabled(name, tool, enabled);
     final res = await _api.toggleMcp({'action': 'tool', 'name': name, 'tool': tool, 'enabled': enabled});
     if (!mounted) return;
     if (res['ok'] == true) {
-      setState(() => _changed = true);
       _snack('已${enabled ? "开启" : "关闭"} $name.$tool');
+    } else {
+      // 失败回滚
+      _patchToolEnabled(name, tool, !enabled);
+      _snack(res['error']?.toString() ?? '操作失败');
+    }
+  }
+
+  Future<bool?> _confirm(String title, String msg) {
+    return showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: Text(msg),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('确定')),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showAddMcpDialog() async {
+    final nameCtrl = TextEditingController();
+    final urlCtrl = TextEditingController();
+    final tokenCtrl = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('添加 MCP Server'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameCtrl,
+                decoration: const InputDecoration(labelText: '名称(name)', hintText: '如: my_server'),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: urlCtrl,
+                decoration: const InputDecoration(labelText: '地址(base_url)', hintText: '如: https://example.com/mcp'),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: tokenCtrl,
+                decoration: const InputDecoration(labelText: 'Token(可选)', hintText: '如: sk-xxx'),
+                obscureText: true,
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('添加')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final name = nameCtrl.text.trim();
+    final url = urlCtrl.text.trim();
+    final token = tokenCtrl.text.trim();
+    if (name.isEmpty || url.isEmpty) {
+      _snack('名称和地址不能为空');
+      return;
+    }
+    final res = await _api.addMcp({'name': name, 'base_url': url, 'token': token});
+    if (!mounted) return;
+    if (res['ok'] == true) {
+      _snack('已添加 $name');
       _load();
     } else {
-      _snack(res['error']?.toString() ?? '操作失败');
+      _snack(res['error']?.toString() ?? '添加失败');
     }
   }
 
@@ -116,6 +216,11 @@ class _McpSettingsScreenState extends State<McpSettingsScreen> {
             onPressed: _loading ? null : _load,
             tooltip: '刷新',
           ),
+          IconButton(
+            icon: const Icon(Icons.add),
+            onPressed: _loading ? null : _showAddMcpDialog,
+            tooltip: '添加 MCP Server',
+          ),
         ],
       ),
       body: _loading
@@ -143,7 +248,6 @@ class _McpSettingsScreenState extends State<McpSettingsScreen> {
     final enabled = server['enabled'] == true;
     final state = server['connect_state'] as String? ?? 'off';
     final tools = (server['tools'] as List? ?? []).cast<Map<String, dynamic>>();
-    final isProtected = name == 'ob'; // 记忆库受保护不可关
 
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 6),
@@ -173,15 +277,10 @@ class _McpSettingsScreenState extends State<McpSettingsScreen> {
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),
-        trailing: isProtected
-            ? const Tooltip(
-                message: '记忆库为 Ever 的大脑，不可关闭',
-                child: Icon(Icons.lock, color: Colors.black38),
-              )
-            : Switch(
-                value: enabled,
-                onChanged: (v) => _toggleServer(server, v),
-              ),
+        trailing: Switch(
+          value: enabled,
+          onChanged: (v) => _toggleServer(server, v),
+        ),
         children:
             enabled
                 ? tools.map((t) => _toolTile(server, t)).toList()
@@ -196,7 +295,6 @@ class _McpSettingsScreenState extends State<McpSettingsScreen> {
   }
 
   Widget _toolTile(Map<String, dynamic> server, Map<String, dynamic> tool) {
-    final name = server['name'] as String? ?? '';
     final toolName = tool['name'] as String? ?? '';
     final desc = tool['description'] as String? ?? '';
     final toolStates = (server['tool_states'] as Map<String, dynamic>?) ?? {};

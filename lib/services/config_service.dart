@@ -9,9 +9,9 @@ class ConfigService {
   static const _kLlmUrl = 'llm_url';
   static const _kApiKey = 'api_key';
   static const _kModel = 'model';
-  static const _kThinking = 'thinking_enabled';
-  static const _kThinkingShow = 'thinking_show';
-  static const _kPushEnabled = 'push_enabled';
+  static const _kThinking = 'thinkingEnabled';
+  static const _kThinkingShow = 'thinkingShow';
+  static const _kPushEnabled = 'pushEnabled';
 
   static final _client = http.Client();
 

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../models/chat_message.dart';
@@ -404,9 +405,10 @@ class _ChatScreenState extends State<ChatScreen> {
                   BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 8, offset: const Offset(0, 2)),
                 ],
               ),
-              child: Text(
+              child: _buildMessageBody(
                 msg.content,
-                style: TextStyle(color: isUser ? Colors.white : Colors.black87, fontSize: 15, height: 1.5),
+                tool: msg.tool,
+                isUser: isUser,
               ),
             ),
           ),
@@ -421,6 +423,87 @@ class _ChatScreenState extends State<ChatScreen> {
         ],
       ),
     );
+  }
+
+  /// 渲染消息正文：若带 tool 卡片（MCP 调用），以折叠卡片展示，避免 raw JSON 暴露
+  Widget _buildMessageBody(String content, {Map<String, dynamic>? tool, required bool isUser}) {
+    final textStyle = TextStyle(color: isUser ? Colors.white : Colors.black87, fontSize: 15, height: 1.5);
+    // 提取 tool 卡片（兼容历史消息 tool 值为 null 但 content 仍含块的兜底解析）
+    List<Map<String, dynamic>> cards = [];
+    if (tool != null && tool['cards'] is List) {
+      cards = List<Map<String, dynamic>>.from(tool['cards'] as List);
+    } else if (tool != null && tool['cards'] is! List) {
+      // 兼容单卡
+      cards = [tool];
+    }
+    // 兜底：若 content 里仍有 T-EVER 块（历史消息未预解析），现场解析并剔除
+    var body = content;
+    if (cards.isEmpty && body.contains('[T-EVER-START]')) {
+      final re = RegExp(r'\[T-EVER-START\](.*?)\[T-EVER-END\]', dotAll: true);
+      for (final m in re.allMatches(body)) {
+        final jsonStr = m.group(1)?.trim() ?? '';
+        try {
+          final decoded = jsonDecode(jsonStr);
+          if (decoded is List) {
+            for (final it in decoded) {
+              if (it is Map) cards.add(Map<String, dynamic>.from(it));
+            }
+          } else if (decoded is Map) {
+            cards.add(Map<String, dynamic>.from(decoded));
+          }
+        } catch (_) {}
+      }
+      body = body.replaceAll(re, '').trim();
+    }
+
+    final widgets = <Widget>[];
+    if (body.trim().isNotEmpty) {
+      widgets.add(Text(body, style: textStyle));
+    }
+    if (cards.isNotEmpty) {
+      widgets.add(const SizedBox(height: 8));
+      widgets.add(_buildToolCard(cards, isUser: isUser));
+    }
+    if (widgets.isEmpty) {
+      widgets.add(Text(body, style: textStyle));
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: widgets,
+    );
+  }
+
+  /// 工具调用折叠卡片
+  Widget _buildToolCard(List<Map<String, dynamic>> cards, {required bool isUser}) {
+    // 只显示第一张卡的标题做摘要，可点击展开看详细（这里做可折叠卡片）
+    final first = cards.first;
+    final title = (first['title'] ?? '工具调用').toString();
+    final detail = _toolCardDetail(cards);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: isUser ? Colors.white.withOpacity(0.12) : const Color(0xFFF4F1FB),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: isUser ? Colors.white24 : const Color(0xFFE4DDF3)),
+      ),
+      child: ToolCardFold(title: title, detail: detail, isUser: isUser),
+    );
+  }
+
+  /// 把卡片列表格式化为可读的详情文本
+  String _toolCardDetail(List<Map<String, dynamic>> cards) {
+    final buf = StringBuffer();
+    for (final c in cards) {
+      final t = (c['title'] ?? '').toString();
+      final content = c['content'] ?? c['summary'] ?? c['result'] ?? '';
+      buf.writeln('• $t');
+      if (content is String && content.isNotEmpty) {
+        buf.writeln('  ${content.length > 120 ? content.substring(0, 120) + '…' : content}');
+      }
+    }
+    return buf.toString();
   }
 
   Widget _buildInputBar() {
@@ -450,6 +533,73 @@ class _ChatScreenState extends State<ChatScreen> {
           ],
         ),
       ),
+    );
+  }
+}
+/// 工具调用折叠卡片 - 可点击展开查看详情
+class ToolCardFold extends StatefulWidget {
+  final String title;
+  final String detail;
+  final bool isUser;
+  const ToolCardFold({super.key, required this.title, required this.detail, this.isUser = false});
+
+  @override
+  State<ToolCardFold> createState() => _ToolCardFoldState();
+}
+
+class _ToolCardFoldState extends State<ToolCardFold> {
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        InkWell(
+          onTap: () => setState(() => _expanded = !_expanded),
+          borderRadius: BorderRadius.circular(6),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                widget.isUser ? Icons.auto_awesome : Icons.build_circle_outlined,
+                size: 15,
+                color: widget.isUser ? Colors.white70 : const Color(0xFF8E7CC3),
+              ),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  widget.title,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: widget.isUser ? Colors.white : const Color(0xFF5B4B8A),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 4),
+              Icon(
+                _expanded ? Icons.expand_less : Icons.expand_more,
+                size: 18,
+                color: widget.isUser ? Colors.white70 : const Color(0xFF8E7CC3),
+              ),
+            ],
+          ),
+        ),
+        if (_expanded)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: SelectableText(
+              widget.detail.trim(),
+              style: TextStyle(
+                fontSize: 12,
+                color: widget.isUser ? Colors.white70 : Colors.grey[700],
+                height: 1.5,
+              ),
+            ),
+          ),
+      ],
     );
   }
 }

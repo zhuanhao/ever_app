@@ -222,4 +222,23 @@ class ApiClient {
       return {'ok': false, 'error': e.toString()};
     }
   }
+
+  /// 新增一个 MCP server
+  /// body: {name, base_url, token}
+  Future<Map<String, dynamic>> addMcp(Map<String, dynamic> body) async {
+    try {
+      final resp = await http
+          .post(_uri('/api/mcp/add'),
+              headers: {'Content-Type': 'application/json'},
+              body: jsonEncode(body))
+          .timeout(const Duration(seconds: 10));
+      final data = jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
+      if (resp.statusCode == 200) {
+        return data;
+      }
+      return {'ok': false, 'error': data['error']?.toString() ?? 'request failed'};
+    } catch (e) {
+      return {'ok': false, 'error': e.toString()};
+    }
+  }
 }
