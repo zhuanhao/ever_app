@@ -187,4 +187,39 @@ class ApiClient {
       return [];
     }
   }
+
+  /// 拉取 MCP 配置(所有 server 状态 + 原始工具清单)
+  /// 返回 servers 列表;失败返回空列表
+  Future<List<Map<String, dynamic>>> fetchMcp() async {
+    try {
+      final resp = await http.get(_uri('/api/mcp')).timeout(const Duration(seconds: 12));
+      if (resp.statusCode == 200) {
+        final data = jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
+        return (data['servers'] as List? ?? []).cast<Map<String, dynamic>>();
+      }
+      return [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  /// 切换 MCP server 或工具开关
+  /// body: {action: 'server'|'tool', name, enabled, tool?}
+  /// 成功返回后端响应 map;失败返回带 error 的 map
+  Future<Map<String, dynamic>> toggleMcp(Map<String, dynamic> body) async {
+    try {
+      final resp = await http
+          .post(_uri('/api/mcp/toggle'),
+              headers: {'Content-Type': 'application/json'},
+              body: jsonEncode(body))
+          .timeout(const Duration(seconds: 10));
+      final data = jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
+      if (resp.statusCode == 200) {
+        return data;
+      }
+      return {'ok': false, 'error': data['error']?.toString() ?? 'request failed'};
+    } catch (e) {
+      return {'ok': false, 'error': e.toString()};
+    }
+  }
 }

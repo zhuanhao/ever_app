@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import '../services/config_service.dart';
 import '../services/api_client.dart';
 import '../services/backup_service.dart';
+import 'mcp_settings_screen.dart';
 
 /// 设置页 - 接入 ConfigService，真实可编辑
 /// 支持：后端API地址 / 上游LLM地址 / API Key / 模型拉取选择 / 思维链开关 / 通知开关
@@ -454,7 +455,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             icon: Icons.extension,
             title: 'MCP Server',
             subtitle: '像 RikkaHub 那样填写，同步后端共用',
-            onTap: () => _showMcpHint(),
+            onTap: () { Navigator.push(context, MaterialPageRoute(builder: (_) => const McpSettingsScreen())); },
           ),
 
           const SizedBox(height: 16),
@@ -550,26 +551,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
 
-
-  void _showMcpHint() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (ctx) => Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: const [
-            Text('MCP Server', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
-            SizedBox(height: 12),
-            Text('这里将来填写 MCP Server 配置（掌心窗/论坛/邮箱等），\n本地存一份并同步给后端，前后端共用同一套工具。\n\n当前为占位入口，后续版本接入。', style: TextStyle(fontSize: 14, height: 1.6, color: Colors.black87)),
-          ],
-        ),
-      ),
-    );
-  }
 
   Future<void> _checkForUpdate() async {
     if (_checkingVersion) return;
@@ -726,7 +707,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   int _parseLocalBuild(String version) {
-    // version 形如 '1.0.0+1'，�� + 后面的 build 号
+    // version 形如 '1.0.0+1'，�� + 后���的 build 号
     final idx = version.indexOf('+');
     if (idx >= 0) {
       return int.tryParse(version.substring(idx + 1)) ?? 1;
