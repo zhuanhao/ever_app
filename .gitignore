@@ -29,3 +29,6 @@ Thumbs.db
 # 上传/日志
 *.log
 version.json
+# 签名密钥（通过 GitHub secret 注入，不提交）
+android/key.properties
+*.jks
