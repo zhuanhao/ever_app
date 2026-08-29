@@ -86,13 +86,25 @@ class _ChatScreenState extends State<ChatScreen> {
     _controller.clear();
 
     try {
-      final reply = await _chat.sendText(text);
+      final reply = await _chat.sendMessageWithIds(text);
       if (mounted) {
         // 将主动聊天得到的回复 id 标记为已见，避免轮询重复注入导致消息重复显示
-        _stream.markSeen(reply.id);
+        _stream.markSeen(reply.replyId);
+        // 用户消息也用后端真实 id 标记，避免轮询再次注入
+        if (reply.userId.isNotEmpty) _stream.markSeen(reply.userId);
         setState(() {
-          userMsg.status = 1; // 标记发送成功
-          _messages.add(reply);
+          // 用后端返回的真实 user_id 更新用户消息 id，避免轮询重复注入
+          final userIndex = _messages.indexWhere((m) => m.id == userMsg.id);
+          if (userIndex >= 0) {
+            _messages[userIndex] = ChatMessage(
+              id: reply.userId.isEmpty ? userMsg.id : reply.userId,
+              role: 'user',
+              content: userMsg.content,
+              time: userMsg.time,
+              status: 1,
+            );
+          }
+          _messages.add(reply.chatMessage);
           _sending = false;
           _connected = true;
         });

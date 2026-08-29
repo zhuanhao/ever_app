@@ -16,15 +16,29 @@ class ChatService {
       _api.fetchHistory(page: page);
 
   /// 发送消息：addUserMsg 后调用 sendText，返回 assistant 回复
-  /// 流程：post /api/chat -> 后端存库 & 生成回复 -> 返回 reply
+  /// 流程：post /api/chat -> 后端存库 & 生成回复 -> 返回 reply + reply_id
+  /// 用后端返回的稳定 reply_id 构造消息，确保 markSeen 与轮询去重匹配
   Future<ChatMessage> sendText(String text) async {
-    final reply = await _api.sendMessage(text);
+    final result = await _api.sendMessage(text);
     return ChatMessage(
-      id: ChatMessage.genId(),
+      id: result.replyId.isEmpty ? ChatMessage.genId() : result.replyId,
       role: 'assistant',
-      content: reply,
+      content: result.reply,
       time: _now(),
     );
+  }
+
+  /// 发送消息并返回后端真实 id（reply_id + user_id）
+  /// 用于主动聊天：用后端 user_id 更新用户消息 id、reply_id 标记 assistant 已见
+  Future<({String replyId, String userId, ChatMessage chatMessage})> sendMessageWithIds(String text) async {
+    final result = await _api.sendMessage(text);
+    final chatMessage = ChatMessage(
+      id: result.replyId.isEmpty ? ChatMessage.genId() : result.replyId,
+      role: 'assistant',
+      content: result.reply,
+      time: _now(),
+    );
+    return (replyId: result.replyId, userId: result.userId, chatMessage: chatMessage);
   }
 
   /// 删除消息

@@ -32,8 +32,8 @@ class ApiClient {
   }
 
   /// 发送消息，接收回复（非流式，一次拿全量）
-  /// 返回 assistant 回复内容。发送失败抛异常。
-  Future<String> sendMessage(String message) async {
+  /// 返回 assistant 回复内容及后端生成的稳定 id（reply_id 与 user_id）。发送失败抛异常。
+  Future<({String reply, String replyId, String userId})> sendMessage(String message) async {
     final resp = await http
         .post(_uri('/api/chat'),
             headers: {'Content-Type': 'application/json'},
@@ -43,7 +43,7 @@ class ApiClient {
     if (data.containsKey('error')) {
       throw Exception(data['error']?.toString() ?? 'unknown_error');
     }
-    return data['reply'] as String? ?? '';
+    return (reply: data['reply'] as String? ?? '', replyId: data['reply_id'] as String? ?? '', userId: data['user_id'] as String? ?? '');
   }
 
   /// 删除消息（多条）
