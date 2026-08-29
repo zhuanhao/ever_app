@@ -1,0 +1,48 @@
+name: Build APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.22.0'
+          cache: true
+
+      - name: Get version from pubspec
+        id: version
+        run: |
+          echo "VERSION=$(grep -m1 '^version:' pubspec.yaml | awk '{print $2}')" >> $GITHUB_OUTPUT
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Build APK
+        run: flutter build apk --release
+
+      - name: Rename APK
+        run: |
+          mkdir -p dist
+          cp build/app/outputs/flutter-apk/app-release.apk dist/ever_app_${{ steps.version.outputs.VERSION }}.apk
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ever_app ${{ steps.version.outputs.VERSION }}
+          tag_name: v${{ steps.version.outputs.VERSION }}
+          files: dist/ever_app_*.apk
+          token: ${{ secrets.GITHUB_TOKEN }}
+          body: |
+            Libi 的家园 App 自动打包
+            版本: ${{ steps.version.outputs.VERSION }}
+            点击下方 APK 文件即可下载安装
