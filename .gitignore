@@ -12,6 +12,11 @@ build/
 *.iml
 .vscode/
 
+# Android
+android/local.properties
+android/.gradle/
+android/app/.cxx/
+
 # OS
 .DS_Store
 Thumbs.db
