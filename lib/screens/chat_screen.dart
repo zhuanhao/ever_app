@@ -134,7 +134,7 @@ class _ChatScreenState extends State<ChatScreen> {
               _toast('已复制');
             }),
             if (msg.isUser)
-              _menuItem(Icons.edit, '编辑', () {
+              _menuItem(Icons.edit, '编��', () {
                 Navigator.pop(ctx);
                 _editMessage(msg);
               }),
@@ -271,6 +271,9 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
       ),
       drawer: const SideDrawer(),
+      onDrawerChanged: (isOpened) {
+        if (!isOpened) FocusScope.of(context).unfocus();
+      },
       body: Column(
         children: [
           Expanded(
