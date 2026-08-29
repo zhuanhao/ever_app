@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/config_service.dart';
 import '../services/api_client.dart';
+import '../services/backup_service.dart';
 
 /// 设置页 - 接入 ConfigService，真实可编辑
 /// 支持：后端API地址 / 上游LLM地址 / API Key / 模型拉取选择 / 思维链开关 / 通知开关
@@ -35,6 +36,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _versionChecked = false;
   bool _hasUpdate = false;
 
+  // 备份/恢复相关
+  bool _backingUp = false;
+  bool _restoring = false;
+  String? _lastBackupTime;
+
   @override
   void initState() {
     super.initState();
@@ -53,6 +59,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _thinkingShow = cfg['thinkingShow'] as bool;
       _pushEnabled = cfg['pushEnabled'] as bool;
     });
+    // 加载最近备份时间
+    final backend = cfg['backendUrl'] as String? ?? 'https://ever.phywn.top';
+    final backup = BackupService(ApiClient(backendUrl: backend));
+    final t = await backup.lastBackupTime();
+    if (!mounted) return;
+    setState(() => _lastBackupTime = t);
   }
 
   Future<void> _save() async {
@@ -150,6 +162,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
             subtitle: '后台有回复时及时提醒',
             value: _pushEnabled,
             onChanged: (v) => setState(() => _pushEnabled = v),
+          ),
+
+          const SizedBox(height: 16),
+          _SectionTitle('数据备份'),
+          _SettingTile(
+            icon: Icons.cloud_upload,
+            title: '备份到云端',
+            subtitle: _backingUp
+                ? '正在备份...'
+                : '当前配置与数据一键备份\n上次备份：${_formatBackupTime(_lastBackupTime)}',
+            onTap: _backupNow,
+          ),
+          _SettingTile(
+            icon: Icons.cloud_download,
+            title: '从云端导入',
+            subtitle: _restoring
+                ? '正在导入...'
+                : '拉取最近一次备份并覆盖本地数据',
+            onTap: _restoreNow,
           ),
 
           const SizedBox(height: 16),
@@ -289,6 +320,73 @@ class _SettingsScreenState extends State<SettingsScreen> {
         SnackBar(content: Text('当前已是最新版本 ${_currentVersion}')),
       );
     }
+  }
+
+  Future<void> _backupNow() async {
+    if (_backingUp) return;
+    setState(() => _backingUp = true);
+    final backend = _backendCtrl.text.trim().isEmpty ? 'https://ever.phywn.top' : _backendCtrl.text.trim();
+    final backup = BackupService(ApiClient(backendUrl: backend));
+    final ok = await backup.backup();
+    if (!mounted) return;
+    setState(() {
+      _backingUp = false;
+      if (ok) _lastBackupTime = DateTime.now().toIso8601String();
+    });
+    if (ok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('备份成功，已存到云端')),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('备份失败，请检查后端地址和网络')),
+      );
+    }
+  }
+
+  Future<void> _restoreNow() async {
+    // 先确认，避免误覆盖
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('确认导入备份?', style: TextStyle(fontWeight: FontWeight.w700)),
+        content: const Text('将从云端拉取最近一次备份并覆盖当前本地配置与数据。\n此操作不可撤销，是否继续?', style: TextStyle(fontSize: 14, height: 1.6)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: const Color(0xFF8E7CC3)),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('导入'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    if (_restoring) return;
+    setState(() => _restoring = true);
+    final backend = _backendCtrl.text.trim().isEmpty ? 'https://ever.phywn.top' : _backendCtrl.text.trim();
+    final backup = BackupService(ApiClient(backendUrl: backend));
+    final ok = await backup.restore();
+    if (!mounted) return;
+    setState(() => _restoring = false);
+    if (ok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('导入成功，重新加载设置...')),
+      );
+      _load();
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('导入失败，云端没有备份或网络异常')),
+      );
+    }
+  }
+
+  String _formatBackupTime(String? iso) {
+    if (iso == null || iso.isEmpty) return '尚未备份';
+    final dt = DateTime.tryParse(iso);
+    if (dt == null) return iso;
+    final p = (int n) => n.toString().padLeft(2, '0');
+    return '${dt.year}-${p(dt.month)}-${p(dt.day)} ${p(dt.hour)}:${p(dt.minute)}';
   }
 
   int _parseLocalBuild(String version) {

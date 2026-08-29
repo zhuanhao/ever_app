@@ -231,6 +231,8 @@ class _ChatScreenState extends State<ChatScreen> {
     try {
       final reply = await _chat.sendText(userText);
       if (mounted) {
+        // 标记重新生成的回复 id 已见，避免轮询重复注入
+        _stream.markSeen(reply.id);
         setState(() {
           _messages[idx].status = 1;
           _messages.add(reply);
